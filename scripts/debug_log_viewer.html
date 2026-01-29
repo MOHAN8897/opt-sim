@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Debug Log Viewer</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f7f7f7; }
+    .container { max-width: 900px; margin: 40px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #0001; padding: 24px; }
+    h1 { margin-top: 0; }
+    .controls { margin-bottom: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .controls input, .controls select { padding: 6px 10px; border-radius: 4px; border: 1px solid #ccc; }
+    .log-table { width: 100%; border-collapse: collapse; }
+    .log-table th, .log-table td { padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 14px; }
+    .log-table th { background: #f0f0f0; }
+    .level-ERROR { color: #c00; font-weight: bold; }
+    .level-WARN { color: #e67e22; font-weight: bold; }
+    .level-INFO { color: #2980b9; }
+    .level-DEBUG { color: #888; }
+    .level-FATAL { color: #fff; background: #c00; padding: 2px 6px; border-radius: 3px; }
+    .meta { font-size: 12px; color: #666; }
+    .clear-btn { background: #c00; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+    .clear-btn:disabled { background: #eee; color: #aaa; cursor: not-allowed; }
+    .category-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #fff; }
+    .cat-DEBUG { background: #888; }
+    .cat-WARNING { background: #e67e22; }
+    .cat-CRITICAL { background: #c00; }
+    .cat-FLOW { background: #2980b9; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Debug Log Viewer</h1>
+    <div id="summary-panel" style="margin-bottom:18px; padding:12px; background:#f8f8f8; border-radius:6px; border:1px solid #eee; display:none"></div>
+    <div class="controls">
+      <label>Level:
+        <select id="level">
+          <option value="">All</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+          <option value="FATAL">FATAL</option>
+        </select>
+      </label>
+      <label>Source:
+        <input id="source" type="text" placeholder="frontend, backend..." />
+      </label>
+      <label>Limit:
+        <input id="limit" type="number" min="1" max="1000" value="100" />
+      </label>
+      <label>Category:
+        <select id="category">
+          <option value="">All</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="WARNING">WARNING</option>
+          <option value="CRITICAL">CRITICAL</option>
+          <option value="FLOW">FLOW</option>
+        </select>
+      </label>
+      <label>Flow:
+        <select id="flow">
+          <option value="">All</option>
+          <option value="AUTH">AUTH</option>
+          <option value="BROKER">BROKER</option>
+          <option value="MARKET">MARKET</option>
+          <option value="TRADE">TRADE</option>
+          <option value="WEBSOCKET">WEBSOCKET</option>
+          <option value="SYSTEM">SYSTEM</option>
+          <option value="OTHER">OTHER</option>
+        </select>
+      </label>
+      <button id="refresh">Refresh</button>
+      <button id="clear" class="clear-btn">Clear Logs</button>
+    </div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;">
+      <button class="tab-btn" data-tab="CRITICAL" id="tab-critical" style="background:#c00;color:#fff;border:none;padding:6px 14px;border-radius:4px;">🟥 Critical</button>
+      <button class="tab-btn" data-tab="WARNINGS" id="tab-warnings" style="background:#e67e22;color:#fff;border:none;padding:6px 14px;border-radius:4px;">🟠 Warnings</button>
+      <button class="tab-btn" data-tab="LIVE" id="tab-live" style="background:#27ae60;color:#fff;border:none;padding:6px 14px;border-radius:4px;">🟢 Live Flow</button>
+      <button class="tab-btn" data-tab="DEBUG" id="tab-debug" style="background:#888;color:#fff;border:none;padding:6px 14px;border-radius:4px;display:none;">🔍 Debug</button>
+      <button class="tab-btn" data-tab="SUMMARY" id="tab-summary" style="background:#34495e;color:#fff;border:none;padding:6px 14px;border-radius:4px;">🧠 Summary</button>
+      <label style="margin-left:16px;font-size:13px;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="show-debug-tab" style="vertical-align:middle;"> Show Debug Tab
+      </label>
+    </div>
+    <div id="summary-tab-panel" style="display:none;"></div>
+    <table class="log-table" id="log-table">
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Level</th>
+          <th>Source</th>
+          <th>Service</th>
+          <th>Flow</th>
+          <th>Correlation</th>
+          <th>Session</th>
+          <th>Category</th>
+          <th>Message</th>
+          <th>Meta</th>
+        </tr>
+      </thead>
+      <tbody id="log-body"></tbody>
+    </table>
+  </div>
+  <script>
+    const API = '/api/debug-logs';
+    const ADMIN_TOKEN = '';
+    let currentTab = 'CRITICAL';
+    let allLogs = [];
+    let summaryData = null;
+    async function fetchLogs() {
+      const level = document.getElementById('level').value;
+      const source = document.getElementById('source').value;
+      const limit = document.getElementById('limit').value;
+      const category = document.getElementById('category').value;
+      const flow = document.getElementById('flow').value;
+      let url = `${API}?limit=${limit}`;
+      if (level) url += `&level=${level}`;
+      if (source) url += `&source=${encodeURIComponent(source)}`;
+      if (category) url += `&log_category=${category}`;
+      if (flow) url += `&log_flow=${flow}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      allLogs = data.logs || [];
+      summaryData = data.summary || null;
+      // If any critical logs, default to Critical tab
+      if (allLogs.some(l => l.log_category === 'CRITICAL' || l.level === 'ERROR' || (l.meta && l.meta.http_status && l.meta.http_status >= 500))) {
+        if (currentTab !== 'CRITICAL') {
+          currentTab = 'CRITICAL';
+        }
+      }
+      renderTabs();
+      renderTabContent();
+    }
+
+    function renderTabs() {
+      // Show/hide Debug tab
+      const debugTab = document.getElementById('tab-debug');
+      const showDebug = document.getElementById('show-debug-tab').checked;
+      debugTab.style.display = showDebug ? '' : 'none';
+    }
+
+    function renderTabContent() {
+      document.getElementById('summary-tab-panel').style.display = 'none';
+      document.getElementById('log-table').style.display = '';
+      let logs = [];
+      if (currentTab === 'CRITICAL') {
+        logs = allLogs.filter(l =>
+          l.log_category === 'CRITICAL' ||
+          l.level === 'ERROR' ||
+          (l.meta && l.meta.http_status && l.meta.http_status >= 500) ||
+          (l.message && /auth fail|broker.*fail|websocket.*fail/i.test(l.message))
+        );
+      } else if (currentTab === 'WARNINGS') {
+        logs = allLogs.filter(l =>
+          (l.message && /market closed|fallback|retry|degraded/i.test(l.message))
+        );
+      } else if (currentTab === 'LIVE') {
+        logs = allLogs.filter(l =>
+          l.level === 'INFO' ||
+          (l.message && /successful|websocket connected|option chain updated/i.test(l.message))
+        );
+      } else if (currentTab === 'DEBUG') {
+        logs = allLogs.filter(l => l.level === 'DEBUG');
+      } else if (currentTab === 'SUMMARY') {
+        document.getElementById('log-table').style.display = 'none';
+        renderSummaryTab();
+        return;
+      } else {
+        logs = allLogs;
+      }
+      renderSummary(summaryData);
+      renderLogs(logs);
+    }
+
+    function renderSummaryTab() {
+      const panel = document.getElementById('summary-tab-panel');
+      panel.style.display = 'block';
+      if (!summaryData) { panel.innerHTML = '<b>No summary available.</b>'; return; }
+      panel.innerHTML = `
+        <h2>Log Summary</h2>
+        <ul style="font-size:15px;line-height:1.7;">
+          <li><b>Session:</b> ${summaryData.session_id || '-'} </li>
+          <li><b>Frontend Logs:</b> ${summaryData.frontend_logs || 0} </li>
+          <li><b>Backend Logs:</b> ${summaryData.backend_logs || 0} </li>
+          <li><b>Critical:</b> <span style="color:#c00">${summaryData.critical_count || 0}</span> </li>
+          <li><b>Warning:</b> <span style="color:#e67e22">${summaryData.warning_count || 0}</span> </li>
+          <li><b>Auth:</b> ${summaryData.auth_status || '-'} </li>
+          <li><b>Broker:</b> ${summaryData.broker_status || '-'} </li>
+          <li><b>Market:</b> ${summaryData.market_status || '-'} </li>
+          <li><b>Last Event:</b> ${summaryData.last_event_at ? new Date(summaryData.last_event_at).toLocaleString() : '-'} </li>
+          <li><b>Health:</b> <span style="color:${summaryData.health==='HEALTHY'?'#27ae60':'#c00'}">${summaryData.health || '-'}</span></li>
+        </ul>
+      `;
+    }
+    function renderSummary(summary) {
+      const panel = document.getElementById('summary-panel');
+      if (!summary) { panel.style.display = 'none'; return; }
+      panel.style.display = 'block';
+      panel.innerHTML = `
+        <b>Session:</b> ${summary.session_id || '-'} &nbsp; 
+        <b>Frontend Logs:</b> ${summary.frontend_logs || 0} &nbsp; 
+        <b>Backend Logs:</b> ${summary.backend_logs || 0} &nbsp; 
+        <b>Critical:</b> <span style="color:#c00">${summary.critical_count || 0}</span> &nbsp; 
+        <b>Warning:</b> <span style="color:#e67e22">${summary.warning_count || 0}</span> &nbsp; 
+        <b>Auth:</b> ${summary.auth_status || '-'} &nbsp; 
+        <b>Broker:</b> ${summary.broker_status || '-'} &nbsp; 
+        <b>Market:</b> ${summary.market_status || '-'} &nbsp; 
+        <b>Last Event:</b> ${summary.last_event_at ? new Date(summary.last_event_at).toLocaleString() : '-'} &nbsp; 
+        <b>Health:</b> <span style="color:${summary.health==='HEALTHY'?'#27ae60':'#c00'}">${summary.health || '-'}</span>
+      `;
+    }
+    function renderLogs(logs) {
+      const tbody = document.getElementById('log-body');
+      tbody.innerHTML = '';
+      for (const log of logs) {
+        const tr = document.createElement('tr');
+        const cat = log.log_category || '';
+        const flow = log.log_flow || '';
+        const redacted = log.redacted ? '<span style="color:#c00;font-weight:bold;">[REDACTED]</span>' : '';
+        tr.innerHTML = `
+          <td>${log.timestamp ? new Date(log.timestamp).toLocaleString() : ''}</td>
+          <td class="level-${log.level}">${log.level || ''}</td>
+          <td>${log.source || ''}</td>
+          <td>${log.service || ''}</td>
+          <td>${flow}</td>
+          <td>${log.correlation_id || ''}</td>
+          <td>${log.session_id || ''}</td>
+          <td><span class="category-badge cat-${cat}">${cat}</span></td>
+          <td>${log.message || ''} ${redacted}</td>
+          <td class="meta">${log.meta ? JSON.stringify(log.meta) : ''}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+    document.getElementById('refresh').onclick = fetchLogs;
+    document.getElementById('clear').onclick = async () => {
+      if (!confirm('Clear all logs?')) return;
+      const res = await fetch(API + `?token=${ADMIN_TOKEN}`, { method: 'DELETE' });
+      if (res.ok) fetchLogs();
+    };
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.onclick = function() {
+        currentTab = this.getAttribute('data-tab');
+        renderTabs();
+        renderTabContent();
+      };
+    });
+    document.getElementById('show-debug-tab').onchange = function() {
+      renderTabs();
+    };
+    window.onload = fetchLogs;
+  </script>
+</body>
+</html>

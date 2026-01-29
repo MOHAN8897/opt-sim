@@ -1,0 +1,15 @@
+version: "2"
+authtoken: 36i1FLKt92Q24vaLTdehWuatcim_48rdBF3YTosdTRoQMTUhH
+
+tunnels:
+  backend:
+    proto: http
+    addr: 8000
+    inspect: true
+    bind_tls: true
+    
+  frontend:
+    proto: http
+    addr: 5173
+    inspect: true
+    bind_tls: true

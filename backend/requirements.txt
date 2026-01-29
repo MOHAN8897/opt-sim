@@ -1,0 +1,21 @@
+# ✅ Updated for Python 3.13 compatibility
+fastapi==0.115.5
+uvicorn==0.34.0
+python-dotenv==1.0.1
+httpx==0.27.2
+authlib==1.3.2
+pydantic-settings==2.6.1
+sqlalchemy==2.0.35
+aiomysql==0.2.0
+aiosqlite==0.20.0
+python-jose[cryptography]==3.3.0
+itsdangerous==2.2.0
+websockets==11.0.3
+protobuf==4.25.5
+grpcio-tools==1.76.0
+scipy>=1.14.0  # Updated for Python 3.13 compatibility
+numpy>=1.26.0  # Updated for Python 3.13 compatibility
+redis==5.0.8
+bcrypt==4.2.1
+upstox-python-sdk==2.19.0
+
